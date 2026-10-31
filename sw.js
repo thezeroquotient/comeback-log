@@ -3,7 +3,7 @@
 // The saved copy always loads first, so a weak gym signal can't stall it.
 // Files update together, only when VERSION changes, so a page never runs against newer code.
 // Bump VERSION on each release so phones pick it up on their next open.
-const VERSION = 'comeback-v9';
+const VERSION = 'comeback-v10';
 const FILES = ['./', './index.html', './logic.js', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
@@ -23,10 +23,10 @@ self.addEventListener('fetch', e => {
     caches.open(VERSION).then(async cache => {
       const saved = await cache.match(e.request, { ignoreSearch: true });
       if (saved) return saved;
-      // Another app on this domain can clear the cache, so missing files are saved again here.
+      // Another app on this domain can clear the cache, so they're all saved again when one is missing.
       try {
         const res = await fetch(e.request);
-        if (res.ok) cache.put(e.request, res.clone());
+        if (res.ok) e.waitUntil(cache.addAll(FILES).catch(() => {}));
         return res;
       } catch {
         return cache.match('./index.html');

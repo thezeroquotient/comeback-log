@@ -73,7 +73,19 @@ const Logic = (() => {
     }
     return out;
   }
-  const lastSession = (days, id, before) => sessions(days, id).filter(s => s.date < before).pop() || null;
+
+  // Best set before a date: heaviest weight, then most reps at it. Bodyweight sets rank by reps.
+  function maxSet(days, id, before) {
+    let best = null;
+    for (const s of sessions(days, id)) {
+      if (s.date < START || s.date >= before) continue;
+      for (const set of s.ex.sets.filter(isLogged)) {
+        const w = num(set.w) || 0, r = num(set.r);
+        if (!best || w > best.w || (w === best.w && r > best.r)) best = { w, r };
+      }
+    }
+    return best;
+  }
 
   const pct = (now, prev) => (prev > 0 ? ((now - prev) / prev) * 100 : null);
 
@@ -173,7 +185,7 @@ const Logic = (() => {
 
   return {
     START, addDays, weekday, localKey, weekNo, weekStart, num, round, isLogged, setVolume, e1rm,
-    sessionStats, hasSets, checks, isSkipped, logged, sessions, lastSession,
+    sessionStats, hasSets, checks, isSkipped, logged, sessions, maxSet,
     pct, exerciseWeeks, weekSummary, mergeStore, setsCsv, dailyCsv,
   };
 })();

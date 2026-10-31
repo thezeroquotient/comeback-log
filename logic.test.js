@@ -101,13 +101,17 @@ test('weekly summary', () => {
   assert.equal(L.weekSummary(days, 2).gymDays, 1);
 });
 
-test('last session looks only at earlier dates', () => {
+test('max: heaviest weight, then most reps, from earlier dates only', () => {
   const days = {
-    '2026-11-02': day('Push', ex('b', 'Chest', [[60, 10]])),
-    '2026-11-09': day('Push', ex('b', 'Chest', [[70, 10]])),
+    '2026-10-31': day('Push', ex('b', 'Chest', [[232, 6]])), // before the start, ignored
+    '2026-11-02': day('Push', ex('b', 'Chest', [[60, 10], [60, 12], [50, 15]])),
+    '2026-11-09': day('Push', ex('b', 'Chest', [[70, 8]])),
+    '2026-11-10': day('Push', ex('dips', 'Triceps', [['', 15], ['', 12]])),
   };
-  assert.equal(L.lastSession(days, 'b', '2026-11-09').date, '2026-11-02');
-  assert.equal(L.lastSession(days, 'b', '2026-11-02'), null);
+  assert.deepEqual(L.maxSet(days, 'b', '2026-11-09'), { w: 60, r: 12 });
+  assert.deepEqual(L.maxSet(days, 'b', '2026-11-30'), { w: 70, r: 8 });
+  assert.equal(L.maxSet(days, 'b', '2026-11-02'), null);
+  assert.deepEqual(L.maxSet(days, 'dips', '2026-11-30'), { w: 0, r: 15 });
 });
 
 test('renaming or moving an exercise keeps its history (keyed by id)', () => {
