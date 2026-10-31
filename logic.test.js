@@ -23,6 +23,23 @@ test('cycle repeats from Nov 1', () => {
   assert.equal(L.cycleDay('2026-11-01', []), '');
 });
 
+test('clock', () => {
+  assert.equal(L.clock(5400), '1:30:00');
+  assert.equal(L.clock(5399.9), '1:29:59');
+  assert.equal(L.clock(65), '0:01:05');
+  assert.equal(L.clock(-5), '0:00:00');
+});
+
+test('weekly average workout time counts timed workouts only', () => {
+  const days = {
+    '2026-11-01': { gym: { t: 1, secs: 5000, ex: [] } },
+    '2026-11-02': { gym: { t: 1, secs: 6000, ex: [] } },
+    '2026-11-03': { gym: { t: 1, ex: [] } },
+  };
+  assert.equal(L.weekSummary(days, 1).avgSecs, 5500);
+  assert.equal(L.weekSummary(days, 2).avgSecs, null);
+});
+
 test('e1RM: Epley', () => {
   near(L.e1rm(60, 10), 80);
   assert.equal(L.e1rm(100, 1), 100);
@@ -153,5 +170,5 @@ test('CSV export', () => {
   const rows = L.setsCsv(days).trim().split('\n');
   assert.equal(rows.length, 2);
   assert.equal(rows[1], '2026-11-02,1,Push,"Bench, flat",Chest,1,60,10,600,80');
-  assert.equal(L.dailyCsv(days).trim().split('\n')[1], '2026-11-02,1,1,1,0,0');
+  assert.equal(L.dailyCsv(days).trim().split('\n')[1], '2026-11-02,1,1,1,0,0,');
 });

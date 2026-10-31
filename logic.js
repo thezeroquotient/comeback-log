@@ -2,6 +2,7 @@
 const Logic = (() => {
   const DAY = 86400000;
   const START = '2026-11-01'; // Week 1 starts here; weeks are 7-day blocks from this date
+  const IDEAL_SECS = 90 * 60; // workout target: 1 hour 30 minutes
 
   // Dates are 'YYYY-MM-DD' strings. UTC arithmetic keeps them free of timezone drift.
   const toMs = k => { const [y, m, d] = k.split('-').map(Number); return Date.UTC(y, m - 1, d); };
@@ -21,6 +22,10 @@ const Logic = (() => {
     if (v === '' || v === null || v === undefined) return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
+  };
+  const clock = secs => {
+    const t = Math.max(0, Math.floor(secs)), pad = n => String(n).padStart(2, '0');
+    return `${Math.floor(t / 3600)}:${pad(Math.floor(t / 60) % 60)}:${pad(t % 60)}`;
   };
   const round = (n, dp = 1) => { const f = 10 ** dp; return Math.round(n * f) / f; };
 
@@ -119,7 +124,8 @@ const Logic = (() => {
 
   function weekSummary(days, week, today = localKey()) {
     const start = weekStart(week);
-    const out = { week, start, gymDays: 0, foodDays: 0, walkDays: 0, suppDays: 0, skipped: 0, sets: 0, reps: 0, vol: 0, byGroup: {}, lifts: [] };
+    const out = { week, start, gymDays: 0, foodDays: 0, walkDays: 0, suppDays: 0, skipped: 0, sets: 0, reps: 0, vol: 0, byGroup: {}, lifts: [], avgSecs: null };
+    let secs = 0, timed = 0;
     const lifts = new Map();
     for (let i = 0; i < 7; i++) {
       const k = addDays(start, i), day = days[k];
@@ -130,6 +136,7 @@ const Logic = (() => {
       if (c.food) out.foodDays++;
       if (c.walk) out.walkDays++;
       if (c.supp) out.suppDays++;
+      if ((num(day.gym?.secs) || 0) > 0) { secs += num(day.gym.secs); timed++; }
       for (const ex of day.gym?.ex || []) {
         const st = sessionStats(ex);
         if (!st.sets) continue;
@@ -139,6 +146,7 @@ const Logic = (() => {
         lifts.set(ex.id, ex.name);
       }
     }
+    if (timed) out.avgSecs = secs / timed;
     out.lifts = [...lifts].map(([id, name]) => ({ ...exerciseWeeks(days, id).find(w => w.week === week), id, name }));
     return out;
   }
@@ -180,16 +188,16 @@ const Logic = (() => {
   }
 
   function dailyCsv(days) {
-    const rows = [['Date', 'Week', 'Gym', 'Food', 'Walk 5K', 'Supplements']];
+    const rows = [['Date', 'Week', 'Gym', 'Food', 'Walk 5K', 'Supplements', 'Workout time']];
     for (const k of logged(days)) {
       const c = checks(days[k]);
-      rows.push([k, weekNo(k), +c.gym, +c.food, +c.walk, +c.supp]);
+      rows.push([k, weekNo(k), +c.gym, +c.food, +c.walk, +c.supp, num(days[k].gym?.secs) ? clock(days[k].gym.secs) : '']);
     }
     return toCsv(rows);
   }
 
   return {
-    START, addDays, cycleDay, localKey, weekNo, weekStart, num, round, isLogged, setVolume, e1rm,
+    START, IDEAL_SECS, clock, addDays, cycleDay, localKey, weekNo, weekStart, num, round, isLogged, setVolume, e1rm,
     sessionStats, hasSets, checks, isSkipped, logged, sessions, maxSet,
     pct, exerciseWeeks, weekSummary, mergeStore, setsCsv, dailyCsv,
   };

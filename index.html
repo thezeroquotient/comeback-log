@@ -85,6 +85,11 @@ select.pick { font-weight: 600; height: 48px; }
 .ex-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-weight: 600; }
 .max { font-size: 14px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
 .ex-head span { color: var(--ink2); font-size: 13px; font-weight: 400; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.timer { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; }
+.timer b { font: 700 32px/1 var(--display); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.timer b.over { color: var(--down); }
+.timer small { display: block; font-size: 12px; color: var(--ink2); }
+.timer .btn { height: 44px; min-width: 96px; font-size: 16px; }
 .set { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; }
 .set.head { font-size: 12px; color: var(--ink2); text-align: center; margin-bottom: -4px; }
 .set .n { font-size: 14px; color: var(--ink2); }
@@ -314,6 +319,19 @@ function ensureSession() {
   const c = currentSession();
   return (dayOf(ui.date).gym = { t: 0, ...c });
 }
+// Works from the start timestamp, so it keeps counting while the phone is locked.
+function timerHtml(g) {
+  if (L.num(g?.secs)) {
+    const over = g.secs > L.IDEAL_SECS;
+    return `<section class="card timer"><div><b class="${over ? 'over' : ''}">${L.clock(g.secs)}</b><small>Workout time · ideal ${L.clock(L.IDEAL_SECS)}</small></div></section>`;
+  }
+  if (g?.startedAt) return `<section class="card timer"><div>${clockHtml(g)}</div></section>`;
+  return `<section class="card timer"><div><b>${L.clock(L.IDEAL_SECS)}</b><small>Ideal workout</small></div><button class="btn primary" data-act="start">Start</button></section>`;
+}
+function clockHtml(g) {
+  const left = L.IDEAL_SECS - (Date.now() - g.startedAt) / 1000, over = left < 0;
+  return `<b class="${over ? 'over' : ''}">${over ? '+' : ''}${L.clock(over ? -left : Math.ceil(left))}</b><small>${over ? 'Over 1:30:00' : 'Left'}</small>`;
+}
 function renderGym() {
   const k = ui.date, cur = currentSession();
   const options = `<option value="">Select workout</option>` + S.plan.days.map(d => `<option value="${esc(d.id)}" ${cur?.dayId === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
@@ -337,6 +355,7 @@ function renderGym() {
       </div>
       ${gearBtn}
     </div>
+    ${timerHtml(cur)}
     <select class="f pick" id="daysel" aria-label="Workout">${options}</select>
     ${pending}
     ${body}
@@ -391,6 +410,7 @@ function weekView() {
   <section class="card two">
     <div class="tile"><small>Total kg lifted</small><span class="big">${fmt(w.vol)}</span> ${d('vol')}</div>
     <div class="tile"><small>Sets</small><span class="big">${w.sets}</span> ${d('sets')}</div>
+    ${w.avgSecs ? `<div class="tile" style="grid-column:1 / -1"><small>Avg workout time · ideal ${L.clock(L.IDEAL_SECS)}</small><span class="big">${L.clock(w.avgSecs)}</span></div>` : ''}
   </section>
   <section class="card"><h2>Exercises</h2><div class="scroll"><table class="data"><thead><tr><th>Exercise</th><th>Best</th><th>Volume</th><th>Change</th></tr></thead><tbody>
     ${w.lifts.map(l => `<tr><td class="name"><button class="link" style="color:inherit;font-size:inherit" data-act="lift" data-id="${esc(l.id)}">${esc(l.name)}</button></td><td>${l.topW ? fmt(l.topW, 1) + '×' : ''}${l.topR}</td><td>${fmt(l.vol)}</td><td>${deltaHtml(l.vol ? l.dVol : l.dReps)}</td></tr>`).join('')}
@@ -531,6 +551,7 @@ const HELP = {
     <dt>Strength</dt><dd>Estimated 1-rep max: kg × (1 + reps ÷ 30), best set</dd>
     <dt>Change</dt><dd>Against the last week you did that exercise</dd>
     <dt>Weeks</dt><dd>7-day blocks from 1 Nov</dd>
+    <dt>Workout time</dt><dd>From Start to Submit</dd>
     <dt>Skipped</dt><dd>A past day with nothing ticked or entered</dd>
     <dt>Blank kg</dt><dd>Bodyweight. Progress counts reps.</dd>
   </dl>`,
@@ -628,10 +649,24 @@ const showToday = () => { scrollTo(0, 0); $('tr.today')?.scrollIntoView({ block:
 const planTouch = () => { S.plan.t = Date.now(); save(); };
 const blankSession = () => { dayOf(ui.date).gym = { t: 0, ex: [] }; touch(S.days[ui.date].gym); }; // kept empty so the clear reaches the other phone
 
+// A running timer carries over when the workout changes.
+function changeWorkout(id) {
+  const startedAt = S.days[ui.date]?.gym?.startedAt;
+  if (S.days[ui.date]?.gym?.name) blankSession();
+  ui.sel = id;
+  if (startedAt && id) { const g = ensureSession(); g.startedAt = startedAt; touch(g); }
+}
+
 const actions = {
   tab: el => {
     if (el.dataset.id === 'settings') ui.back = ui.tab;
     ui.tab = el.dataset.id; ui.switchTo = null; render(); showToday();
+  },
+  start: () => {
+    if (!currentSession()) return notice('Select workout', 'Choose a workout, then Start.', 'OK');
+    const g = ensureSession();
+    g.startedAt = Date.now();
+    touch(g); render();
   },
   submit: () => {
     const g = currentSession();
@@ -651,7 +686,9 @@ const actions = {
     }
     if (!g.ex.some(x => x.sets.some(L.isLogged))) return notice('Nothing entered', 'Enter a set, then Submit.', 'OK');
     const saved = ensureSession(), d = S.days[ui.date];
-    saved.done = true; touch(saved);
+    saved.done = true;
+    if (saved.startedAt && !saved.secs) saved.secs = Math.round((Date.now() - saved.startedAt) / 1000); // Submit stops the timer
+    touch(saved);
     d.gymck = { t: 0, on: true }; touch(d.gymck);
     flush();
     const vol = saved.ex.reduce((a, x) => a + L.sessionStats(x).vol, 0);
@@ -659,7 +696,7 @@ const actions = {
       const before = L.maxSet(S.days, x.id, ui.date), now = L.maxSet(S.days, x.id, L.addDays(ui.date, 1));
       return before && JSON.stringify(before) !== JSON.stringify(now);
     }).map(x => x.name);
-    notice('Good job!', saved.name + (vol ? ` · ${fmt(vol)} kg lifted` : '') + (beaten.length ? ` · New max: ${beaten.join(', ')}` : ''), 'Done', () => { ui.tab = 'daily'; render(); showToday(); });
+    notice('Good job!', saved.name + (vol ? ` · ${fmt(vol)} kg lifted` : '') + (saved.secs ? ` · ${L.clock(saved.secs)}` : '') + (beaten.length ? ` · New max: ${beaten.join(', ')}` : ''), 'Done', () => { ui.tab = 'daily'; render(); showToday(); });
   },
   delphoto: () => { localStorage.removeItem(PHOTO_KEY); render(); },
   check: el => {
@@ -668,7 +705,7 @@ const actions = {
     touch(d[key]); render();
   },
   shift: el => { ui.date = L.addDays(ui.date, +el.dataset.n); ui.sel = null; ui.switchTo = null; render(); },
-  replace: () => { blankSession(); ui.sel = ui.switchTo; ui.switchTo = null; render(); },
+  replace: () => { changeWorkout(ui.switchTo); ui.switchTo = null; render(); },
   keep: () => { ui.switchTo = null; render(); },
   clear: el => {
     if (el.dataset.sure !== '1') { el.dataset.sure = '1'; el.textContent = 'Tap again to clear'; return; }
@@ -740,8 +777,7 @@ document.addEventListener('change', ev => {
   const el = ev.target;
   if (el.id === 'daysel') {
     if (L.hasSets(S.days[ui.date])) { ui.switchTo = el.value; render(); return; }
-    if (S.days[ui.date]?.gym?.name) blankSession();
-    ui.sel = el.value; render();
+    changeWorkout(el.value); render();
   }
   if (el.id === 'liftsel') { ui.lift = el.value; render(); }
   if (el.id === 'photo' && el.files[0]) savePhoto(el.files[0]);
@@ -768,6 +804,10 @@ window.addEventListener('pagehide', flush);
 window.addEventListener('online', runSync);
 window.addEventListener('hashchange', () => location.reload());
 setInterval(() => { if (!document.hidden) runSync(); }, 30000); // picks up changes from another device
+setInterval(() => {
+  const g = S.days[ui.date]?.gym;
+  if (ui.tab === 'gym' && g?.startedAt && !g.secs) { const el = $('.timer div'); if (el) el.innerHTML = clockHtml(g); }
+}, 1000);
 
 render();
 showToday();
