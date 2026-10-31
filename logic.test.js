@@ -7,13 +7,20 @@ const ex = (id, group, sets) => ({ id, name: id, group, sets: sets.map(([w, r]) 
 const day = (name, ...exs) => ({ gym: { t: 1, name, ex: exs } });
 
 test('dates: week 1 starts Nov 1, in 7-day blocks', () => {
-  assert.equal(L.weekday('2026-11-02'), 0); // Monday
-  assert.equal(L.weekday('2026-11-01'), 6); // Sunday
   assert.equal(L.weekNo('2026-11-01'), 1);
   assert.equal(L.weekNo('2026-11-07'), 1);
   assert.equal(L.weekNo('2026-11-08'), 2);
   assert.equal(L.weekStart(2), '2026-11-08');
   assert.equal(L.addDays('2026-12-31', 1), '2027-01-01');
+});
+
+test('cycle repeats from Nov 1', () => {
+  const c = ['push', 'pull', 'legs', ''];
+  assert.deepEqual(['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05'].map(k => L.cycleDay(k, c)),
+    ['push', 'pull', 'legs', '', 'push']);
+  assert.equal(L.cycleDay('2026-12-01', c), 'legs'); // 30 days on
+  assert.equal(L.cycleDay('2026-10-31', c), ''); // before the start, no crash
+  assert.equal(L.cycleDay('2026-11-01', []), '');
 });
 
 test('e1RM: Epley', () => {

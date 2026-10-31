@@ -10,6 +10,11 @@ const Logic = (() => {
   const weekday = k => (new Date(toMs(k)).getUTCDay() + 6) % 7; // Monday = 0
   const localKey = (d = new Date()) => toKey(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const weekNo = k => Math.floor((toMs(k) - toMs(START)) / (7 * DAY)) + 1;
+  // The rotation repeats from the start date: day 1 of the cycle is Nov 1.
+  const cycleDay = (k, cycle) => {
+    const n = cycle.length, i = Math.round((toMs(k) - toMs(START)) / DAY);
+    return n ? cycle[((i % n) + n) % n] : '';
+  };
   const weekStart = n => addDays(START, (n - 1) * 7);
 
   const num = v => {
@@ -184,7 +189,7 @@ const Logic = (() => {
   }
 
   return {
-    START, addDays, weekday, localKey, weekNo, weekStart, num, round, isLogged, setVolume, e1rm,
+    START, addDays, cycleDay, localKey, weekNo, weekStart, num, round, isLogged, setVolume, e1rm,
     sessionStats, hasSets, checks, isSkipped, logged, sessions, maxSet,
     pct, exerciseWeeks, weekSummary, mergeStore, setsCsv, dailyCsv,
   };

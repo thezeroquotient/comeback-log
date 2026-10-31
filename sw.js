@@ -3,7 +3,7 @@
 // The saved copy always loads first, so a weak gym signal can't stall it.
 // Files update together, only when VERSION changes, so a page never runs against newer code.
 // Bump VERSION on each release so phones pick it up on their next open.
-const VERSION = 'comeback-v10';
+const VERSION = 'comeback-v11';
 const FILES = ['./', './index.html', './logic.js', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

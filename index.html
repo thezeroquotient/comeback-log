@@ -139,7 +139,7 @@ table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-nu
 .plan-nums input { padding: 0 4px; text-align: center; }
 label.fld { display: grid; gap: 4px; font-size: 13px; color: var(--ink2); min-width: 0; }
 label.fld input, label.fld select { color: var(--ink); font-size: 16px; }
-.sched { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.sched { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
 .sched label { font-size: 12px; color: var(--ink2); text-align: center; display: grid; gap: 4px; }
 .sched select { height: 44px; padding: 0 2px; font-size: 13px; text-align: center; text-align-last: center; border-radius: 8px; border: 0; background: var(--sunk); color: var(--ink); width: 100%; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -171,7 +171,6 @@ const STORE_KEY = 'comeback.v4', LINK_KEY = 'comeback.link';
 const API = 'https://comeback-log-api.clear-product-interviews.workers.dev';
 const PHOTO_KEY = 'comeback.photo', MOTIVE_KEY = 'comeback.motivated'; // stay on this phone, never synced
 const GIST_FILE = 'comeback-log.json';
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const GROUPS = ['Chest', 'Shoulders', 'Triceps', 'Back', 'Traps', 'Rear delts', 'Biceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Other'];
 const COLUMNS = [['gym', 'Gym'], ['food', 'Food'], ['walk', 'Walk 5K'], ['supp', 'Supps']];
 const LINES = [
@@ -184,7 +183,7 @@ const LINES = [
   'Future you is watching.',
 ];
 
-// The 3-day PPL from the video. Day 1 Push, day 3 Pull, day 5 Legs, counted from Sunday Nov 1.
+// The PPL exercises from the video, on a Push, Pull, Legs, Rest rotation from Nov 1.
 const e = (id, name, group, sets, min, max) => ({ id, name, group, sets, min, max });
 const DEFAULT_PLAN = {
   t: 0,
@@ -220,7 +219,7 @@ const DEFAULT_PLAN = {
       e('bicycle-crunch', 'Bicycle Crunch', 'Abs', 4, 12, 15),
     ] },
   ],
-  schedule: ['', 'pull', '', 'legs', '', '', 'push'], // Monday first
+  cycle: ['push', 'pull', 'legs', ''],
 };
 
 const read = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
@@ -268,7 +267,8 @@ const today = () => L.localKey();
 const dayOf = k => (S.days[k] ||= { date: k });
 const touch = sec => { sec.t = Date.now(); save(); };
 const planDay = id => S.plan.days.find(d => d.id === id);
-const scheduledFor = k => planDay(S.plan.schedule[L.weekday(k)]);
+const cycle = () => (S.plan.cycle ||= structuredClone(DEFAULT_PLAN.cycle));
+const scheduledFor = k => planDay(L.cycleDay(k, cycle()));
 const notice = (title, text, label, onClose) => dialog(`<div class="win"><b>${esc(title)}</b><span class="muted">${esc(text)}</span></div>`, label, onClose);
 const gearBtn = `<button class="icon" data-act="tab" data-id="settings" aria-label="Settings">⚙</button>`;
 
@@ -487,7 +487,10 @@ function renderSettings() {
       ${photo ? '<button class="btn small danger" data-act="delphoto">Remove</button>' : ''}
     </div>
   </section>
-  <section class="card"><h2>Week</h2><div class="sched">${WEEKDAYS.map((d, i) => `<label>${d}<select data-p="sched" data-i="${i}" aria-label="${d}">${opts(P.schedule[i])}</select></label>`).join('')}</div></section>
+  <section class="card"><h2>Cycle</h2>
+    <div class="sched">${cycle().map((id, i) => `<label>Day ${i + 1}<select data-p="cycle" data-i="${i}" aria-label="Day ${i + 1}">${opts(id)}</select></label>`).join('')}</div>
+    <div class="row"><button class="btn small" data-act="addcycle">+ Day</button><button class="btn small" data-act="delcycle">− Day</button></div>
+  </section>
   ${P.days.map((d, di) => `
     <section class="card" data-day="${di}">
       <div class="row">
@@ -693,9 +696,11 @@ const actions = {
   delday: el => {
     if (el.dataset.sure !== '1') { el.dataset.sure = '1'; el.textContent = 'Sure?'; return; }
     const [d] = S.plan.days.splice(+el.closest('[data-day]').dataset.day, 1);
-    S.plan.schedule = S.plan.schedule.map(id => (id === d.id ? '' : id));
+    S.plan.cycle = cycle().map(id => (id === d.id ? '' : id));
     planTouch(); render();
   },
+  addcycle: () => { cycle().push(''); planTouch(); render(); },
+  delcycle: () => { if (cycle().length > 1) { cycle().pop(); planTouch(); render(); } },
   addday: () => { S.plan.days.push({ id: 'd' + uid(), name: 'New workout', exercises: [] }); planTouch(); render(); },
   copylink: async () => {
     try {
@@ -725,7 +730,7 @@ document.addEventListener('input', ev => {
     touch(g);
   } else if (el.dataset.p) {
     const p = el.dataset.p, P = S.plan;
-    if (p === 'sched') P.schedule[+el.dataset.i] = el.value;
+    if (p === 'cycle') cycle()[+el.dataset.i] = el.value;
     else if (p === 'dayname') P.days[+el.closest('[data-day]').dataset.day].name = el.value;
     else if (p === 'x') P.days[+el.closest('[data-day]').dataset.day].exercises[+el.closest('[data-x]').dataset.x][el.dataset.k] = el.value;
     planTouch();
