@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://api.github.com https://gist.githubusercontent.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://comeback-log-api.clear-product-interviews.workers.dev">
 <title>Comeback Log</title>
 <meta name="theme-color" content="#ECEEF1" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#121418" media="(prefers-color-scheme: dark)">
@@ -166,7 +166,8 @@ dialog dd { margin: 0; color: var(--ink2); font-variant-numeric: tabular-nums; }
 <script src="logic.js"></script>
 <script>
 const L = Logic;
-const STORE_KEY = 'comeback.v3', TOKEN_KEY = 'comeback.token', GIST_KEY = 'comeback.gist';
+const STORE_KEY = 'comeback.v4', LINK_KEY = 'comeback.link';
+const API = 'https://comeback-log-api.clear-product-interviews.workers.dev';
 const PHOTO_KEY = 'comeback.photo', MOTIVE_KEY = 'comeback.motivated'; // stay on this phone, never synced
 const GIST_FILE = 'comeback-log.json';
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -226,6 +227,9 @@ const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); retu
 
 const S = read(STORE_KEY, { plan: null, days: {} });
 if (!S.plan?.t) S.plan = structuredClone(DEFAULT_PLAN); // never edited, so take the latest default
+// The private link carries the key after the #, which is never sent to the website.
+if (location.hash.length > 1) write(LINK_KEY, location.hash.slice(1));
+const linkKey = () => read(LINK_KEY, '');
 const firstOpenDay = () => (L.localKey() > L.START ? L.localKey() : L.START); // nothing before the start date
 const ui = { tab: 'daily', date: firstOpenDay(), opened: L.localKey(), sel: null, switchTo: null, view: 'week', week: null, lift: null, metric: 'e1' };
 const sync = { state: 'local', at: null, msg: '' };
@@ -474,7 +478,7 @@ function bindChart(rows, m) {
 function renderSettings() {
   const P = S.plan;
   const opts = sel => `<option value="">Rest</option>` + P.days.map(d => `<option value="${esc(d.id)}" ${d.id === sel ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
-  const hasToken = !!read(TOKEN_KEY, ''), photo = read(PHOTO_KEY, '');
+  const photo = read(PHOTO_KEY, '');
   return `
   <div class="top"><div class="row"><button class="icon" data-act="tab" data-id="${esc(ui.back || 'daily')}" aria-label="Back">‹</button><h1>Settings</h1></div></div>
   <section class="card"><h2>Dream body</h2>
@@ -509,14 +513,8 @@ function renderSettings() {
       <button class="link" data-act="addx" style="justify-self:start">+ Exercise</button>
     </section>`).join('')}
   <button class="btn" data-act="addday">+ Workout</button>
-  <section class="card"><h2>Sync phones</h2>
-    ${hasToken
-      ? `<div class="row between"><span class="muted">${esc(sync.msg || 'Connected')}</span><button class="btn small" data-act="syncnow">Sync now</button></div>
-         <button class="link" data-act="disconnect" style="justify-self:start">Disconnect</button>`
-      : `<div class="row"><input class="f grow" id="token" type="password" autocomplete="off" placeholder="GitHub token" aria-label="GitHub token"><button class="btn" data-act="connect">Connect</button></div>
-         <button class="link" data-act="help-sync" style="justify-self:start">How to get a token</button>`}
-  </section>
   <section class="card"><h2>Your data</h2>
+    <div class="row between"><span class="muted" id="syncmsg">${esc(sync.msg)}</span><button class="btn small" data-act="copylink">Copy my link</button></div>
     <div class="chips">
       <button class="btn small" data-act="csv-sets">Sets CSV</button>
       <button class="btn small" data-act="csv-daily">Daily CSV</button>
@@ -533,11 +531,6 @@ const HELP = {
     <dt>Weeks</dt><dd>7-day blocks from 1 Nov</dd>
     <dt>Skipped</dt><dd>A past day with nothing ticked or entered</dd>
     <dt>Blank kg</dt><dd>Bodyweight. Progress counts reps.</dd>
-  </dl>`,
-  sync: `<h2>Get a token</h2><dl>
-    <dt>1</dt><dd>GitHub → Settings → Developer settings → Personal access tokens → Fine-grained → Generate</dd>
-    <dt>2</dt><dd>Account permissions → Gists → Read and write</dd>
-    <dt>3</dt><dd>Paste the same token on both phones</dd>
   </dl>`,
 };
 function dialog(html, label = 'Close', onClose = null) {
@@ -573,64 +566,48 @@ function savePhoto(file) {
   img.src = url;
 }
 
-/* ---------- Sync: a private gist holds the merged data ---------- */
-const gh = (path, opts = {}) => fetch('https://api.github.com' + path, {
-  ...opts,
-  headers: { Authorization: 'Bearer ' + read(TOKEN_KEY, ''), Accept: 'application/vnd.github+json', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
-}).then(r => { if (!r.ok) throw new Error('GitHub ' + r.status); return r.json(); });
-
-async function findGist() {
-  let id = read(GIST_KEY, '');
-  if (id) return id;
-  for (let page = 1; page <= 5 && !id; page++) {
-    const list = await gh(`/gists?per_page=100&page=${page}`);
-    id = list.find(g => g.files?.[GIST_FILE])?.id;
-    if (list.length < 100) break;
-  }
-  if (!id) {
-    const g = await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'Comeback Log data', public: false, files: { [GIST_FILE]: { content: '{}' } } }) });
-    id = g.id;
-  }
-  write(GIST_KEY, id);
-  return id;
-}
-async function readGist(id) {
-  const g = await gh('/gists/' + id);
-  const f = g.files?.[GIST_FILE];
-  if (!f) return {};
-  const text = f.truncated ? await fetch(f.raw_url).then(r => r.text()) : f.content;
-  return JSON.parse(text || '{}');
-}
+/* ---------- Sync: every device sends what it has and gets back the merged result ---------- */
 const sortDays = s => ({ plan: s.plan, days: Object.fromEntries(Object.keys(s.days || {}).sort().map(k => [k, s.days[k]])) });
 const isTyping = () => /INPUT|SELECT/.test(document.activeElement?.tagName || '');
+function syncStatus(msg) {
+  sync.msg = msg;
+  const el = $('#syncmsg');
+  if (el) el.textContent = msg;
+}
 let syncing = false;
 async function runSync() {
   clearTimeout(syncTimer);
-  if (syncing || !read(TOKEN_KEY, '')) return;
-  if (!navigator.onLine) { sync.state = 'local'; sync.msg = 'Offline, will sync later'; return; }
-  syncing = true; sync.state = 'busy';
+  if (syncing || !linkKey()) return;
+  if (!navigator.onLine) return syncStatus('Offline, saved on this device');
+  syncing = true;
   try {
     flush();
-    const id = await findGist();
-    const remote = await readGist(id);
+    const res = await fetch(API + '/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Key': linkKey() },
+      body: JSON.stringify(S),
+    });
+    if (res.status === 401) { localStorage.removeItem(LINK_KEY); render(); return; }
+    if (!res.ok) throw new Error('Sync ' + res.status);
+    const remote = await res.json();
+    // Merged again with local data, so anything typed while the request ran is kept.
     const merged = L.mergeStore(S, remote);
-    const before = JSON.stringify(sortDays(S)), after = JSON.stringify(sortDays(merged));
-    const remoteSame = after === JSON.stringify(sortDays({ plan: remote.plan, days: remote.days || {} }));
+    const changed = JSON.stringify(sortDays(S)) !== JSON.stringify(sortDays(merged));
     S.days = merged.days; S.plan = merged.plan || S.plan;
-    if (!remoteSame) await gh('/gists/' + id, { method: 'PATCH', body: JSON.stringify({ files: { [GIST_FILE]: { content: JSON.stringify(S) } } }) });
     flush();
-    sync.state = 'ok'; sync.at = Date.now();
-    sync.msg = 'Synced ' + new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
-    if (before !== after && !isTyping()) render();
-  } catch (err) {
-    sync.state = 'error';
-    sync.msg = /40[13]/.test(err.message) ? 'Token rejected' : 'Sync failed, will retry';
+    syncStatus('Saved online ' + new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' }));
+    if (changed && !isTyping()) render();
+  } catch {
+    syncStatus('Saved on this device, will sync');
+  } finally {
+    syncing = false;
   }
-  syncing = false;
 }
 
 /* ---------- Events ---------- */
 function render() {
+  $('#tabs').hidden = !linkKey();
+  if (!linkKey()) { $('#app').innerHTML = '<section class="card empty" style="margin-top:40vh">Open your private link</section>'; return; }
   const screen = { daily: renderDaily, gym: renderGym, analytics: renderAnalytics, settings: renderSettings }[ui.tab]();
   $('#app').innerHTML = screen;
   $('#tabs').innerHTML = [['daily', 'Daily'], ['gym', 'Gym'], ['analytics', 'Analytics']].map(([id, n]) => `<button data-act="tab" data-id="${id}" ${ui.tab === id ? 'aria-current="page"' : ''}>${n}</button>`).join('');
@@ -717,21 +694,13 @@ const actions = {
     planTouch(); render();
   },
   addday: () => { S.plan.days.push({ id: 'd' + uid(), name: 'New workout', exercises: [] }); planTouch(); render(); },
-  connect: async () => {
-    const t = $('#token').value.trim();
-    if (!t) return;
-    write(TOKEN_KEY, t); sync.msg = ''; render();
-    await runSync();
-    if (sync.state === 'error') { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(GIST_KEY); toast(sync.msg); }
-    render();
-  },
-  syncnow: async () => { await runSync(); render(); },
-  disconnect: el => {
-    if (el.dataset.sure !== '1') { el.dataset.sure = '1'; el.textContent = 'Tap again to disconnect'; return; }
-    localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(GIST_KEY); sync.state = 'local'; sync.msg = ''; render();
+  copylink: async () => {
+    try {
+      await navigator.clipboard.writeText(location.origin + location.pathname + '#' + linkKey());
+      toast('Link copied');
+    } catch { toast('Copy it from the address bar'); }
   },
   help: () => dialog(HELP.calc),
-  'help-sync': () => dialog(HELP.sync),
   'csv-sets': () => download('comeback-sets.csv', L.setsCsv(S.days), 'text/csv'),
   'csv-daily': () => download('comeback-daily.csv', L.dailyCsv(S.days), 'text/csv'),
   backup: () => download(`comeback-backup-${today()}.json`, JSON.stringify(S), 'application/json'),
@@ -789,6 +758,8 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', flush);
 window.addEventListener('online', runSync);
+window.addEventListener('hashchange', () => location.reload());
+setInterval(() => { if (!document.hidden) runSync(); }, 30000); // picks up changes from another device
 
 render();
 showToday();

@@ -1,0 +1,9 @@
+{
+  "name": "comeback-log-api",
+  "main": "worker.js",
+  "preview_urls": false,
+  "compatibility_date": "2026-10-01",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "comeback-log", "database_id": "3cefdd2c-aea3-4848-ac9f-3484efabe374" }
+  ]
+}
