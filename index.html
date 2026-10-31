@@ -90,6 +90,13 @@ select.pick { font-weight: 600; height: 48px; }
 .timer b.over { color: var(--down); }
 .timer small { display: block; font-size: 12px; color: var(--ink2); }
 .timer .btn { height: 44px; min-width: 96px; font-size: 16px; }
+/* After Submit: a white page over the Gym tab, in both themes */
+.done { position: fixed; inset: 0 0 calc(61px + env(safe-area-inset-bottom, 0px)); z-index: 4; background: #fff; color: #15181D; display: flex; flex-direction: column; justify-content: center; gap: 28px; text-align: center; padding: calc(24px + env(safe-area-inset-top, 0px)) max(24px, env(safe-area-inset-right, 0px)) 24px max(24px, env(safe-area-inset-left, 0px)); overflow-y: auto; }
+.done > * { width: 100%; max-width: 460px; margin: 0 auto; }
+.done h1 { font-size: 52px; }
+.done p { color: #545C68; font-size: 15px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.done blockquote { margin: 0 auto; font: 700 30px/1.2 var(--display); letter-spacing: .02em; text-wrap: balance; }
+.done .btn.primary { width: 100%; background: #C8102E; color: #fff; }
 .set { display: grid; grid-template-columns: 52px minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; }
 .set.head { font-size: 12px; color: var(--ink2); text-align: center; margin-bottom: -4px; }
 .set .n { font-size: 14px; color: var(--ink2); }
@@ -178,6 +185,15 @@ const PHOTO_KEY = 'comeback.photo', MOTIVE_KEY = 'comeback.motivated'; // stay o
 const GIST_FILE = 'comeback-log.json';
 const GROUPS = ['Chest', 'Shoulders', 'Triceps', 'Back', 'Traps', 'Rear delts', 'Biceps', 'Forearms', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Abs', 'Other'];
 const COLUMNS = [['gym', 'Gym'], ['food', 'Food'], ['walk', 'Walk 5K'], ['supp', 'Supps']];
+const QUOTES = [
+  'The only bad workout is the one that didn\'t happen.',
+  'You don\'t have to be extreme. Just consistent.',
+  'Small progress is still progress.',
+  'Show up today. Thank yourself tomorrow.',
+  'Discipline is choosing what you want most over what you want now.',
+  'Sweat now. Shine later.',
+  'Every rep is a vote for who you\'re becoming.',
+];
 const LINES = [
   'Show up. That is the whole plan.',
   'Nobody regrets the session.',
@@ -321,10 +337,6 @@ function ensureSession() {
 }
 // Works from the start timestamp, so it keeps counting while the phone is locked.
 function timerHtml(g) {
-  if (L.num(g?.secs)) {
-    const over = g.secs > L.IDEAL_SECS;
-    return `<section class="card timer"><div><b class="${over ? 'over' : ''}">${L.clock(g.secs)}</b><small>Workout time · ideal ${L.clock(L.IDEAL_SECS)}</small></div></section>`;
-  }
   if (g?.startedAt) return `<section class="card timer"><div>${clockHtml(g)}</div></section>`;
   return `<section class="card timer"><div><b>${L.clock(L.IDEAL_SECS)}</b><small>Ideal workout</small></div><button class="btn primary" data-act="start">Start</button></section>`;
 }
@@ -332,8 +344,31 @@ function clockHtml(g) {
   const left = L.IDEAL_SECS - (Date.now() - g.startedAt) / 1000, over = left < 0;
   return `<b class="${over ? 'over' : ''}">${over ? '+' : ''}${L.clock(over ? -left : Math.ceil(left))}</b><small>${over ? 'Over 1:30:00' : 'Left'}</small>`;
 }
+// The next date with a workout that isn't submitted yet. Rest days are passed over.
+function nextWorkout(from) {
+  for (let i = 1; i <= 90; i++) {
+    const date = L.addDays(from, i), plan = scheduledFor(date);
+    if (plan && !S.days[date]?.gym?.done) return { date, plan };
+  }
+  return null;
+}
+function doneScreen(g) {
+  const k = ui.date, next = nextWorkout(k);
+  const vol = g.ex.reduce((a, x) => a + L.sessionStats(x).vol, 0);
+  const beaten = g.ex.filter(x => {
+    const before = L.maxSet(S.days, x.id, k), now = L.maxSet(S.days, x.id, L.addDays(k, 1));
+    return before && JSON.stringify(before) !== JSON.stringify(now);
+  }).map(x => x.name);
+  const line = [g.name, vol ? `${fmt(vol)} kg lifted` : '', g.secs ? L.clock(g.secs) : ''].filter(Boolean).join(' · ');
+  return `<section class="done">
+    <div><h1>Good job!</h1><p>${esc(line)}</p>${beaten.length ? `<p>New max: ${esc(beaten.join(', '))}</p>` : ''}</div>
+    <blockquote>${esc(QUOTES[Number(k.replaceAll('-', '')) % QUOTES.length])}</blockquote>
+    ${next ? `<div><button class="btn primary" data-act="startnext" data-id="${esc(next.plan.id)}" data-k="${next.date}">Start ${esc(next.plan.name)}</button><p>${esc(dateLabel(next.date))}</p></div>` : ''}
+  </section>`;
+}
 function renderGym() {
   const k = ui.date, cur = currentSession();
+  if (cur?.done) return doneScreen(cur); // submitted days can't be edited
   const options = `<option value="">Select workout</option>` + S.plan.days.map(d => `<option value="${esc(d.id)}" ${cur?.dayId === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
   let body = '';
   if (cur) {
@@ -359,7 +394,7 @@ function renderGym() {
     <select class="f pick" id="daysel" aria-label="Workout">${options}</select>
     ${pending}
     ${body}
-    ${cur ? `<button class="btn primary" data-act="submit">${cur.done ? 'Submitted ✓' : 'Submit'}</button>` : ''}
+    ${cur ? '<button class="btn primary" data-act="submit">Submit</button>' : ''}
     ${saved ? `<button class="link" data-act="clear" style="justify-self:start">Clear this workout</button>` : ''}`;
 }
 const maxText = m => (m.w ? `${fmt(m.w, 2)} kg × ${fmt(m.r, 2)}` : `${fmt(m.r, 2)} reps`);
@@ -668,6 +703,12 @@ const actions = {
     g.startedAt = Date.now();
     touch(g); render();
   },
+  startnext: el => {
+    ui.date = el.dataset.k; ui.sel = el.dataset.id; ui.switchTo = null;
+    const g = ensureSession();
+    g.startedAt ||= Date.now();
+    touch(g); render(); scrollTo(0, 0);
+  },
   submit: () => {
     const g = currentSession();
     const missing = [];
@@ -691,12 +732,7 @@ const actions = {
     touch(saved);
     d.gymck = { t: 0, on: true }; touch(d.gymck);
     flush();
-    const vol = saved.ex.reduce((a, x) => a + L.sessionStats(x).vol, 0);
-    const beaten = saved.ex.filter(x => {
-      const before = L.maxSet(S.days, x.id, ui.date), now = L.maxSet(S.days, x.id, L.addDays(ui.date, 1));
-      return before && JSON.stringify(before) !== JSON.stringify(now);
-    }).map(x => x.name);
-    notice('Good job!', saved.name + (vol ? ` · ${fmt(vol)} kg lifted` : '') + (saved.secs ? ` · ${L.clock(saved.secs)}` : '') + (beaten.length ? ` · New max: ${beaten.join(', ')}` : ''), 'Done', () => { ui.tab = 'daily'; render(); showToday(); });
+    render(); scrollTo(0, 0);
   },
   delphoto: () => { localStorage.removeItem(PHOTO_KEY); render(); },
   check: el => {
